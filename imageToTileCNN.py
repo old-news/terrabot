@@ -4,7 +4,8 @@ import torch.optim as optim
 from torchvision import datasets
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
-import os
+import os, sys
+print("Done importing")
 
 class image2TileCNN(nn.Module):
     def __init__(self):
@@ -26,14 +27,16 @@ class image2TileCNN(nn.Module):
         y = self.features(x)
         return self.classifier(y)
 
-    def trainModel(self, epochs=200):
+    def trainModel(self, epochs=None):
+        print("Training...")
+        if epochs is None: epochs = sys.maxsize * sys.maxsize
         transform = transforms.Compose([
             transforms.Resize((16, 16)), # Must match image size (16x16)
             transforms.ToTensor(),
         ])
 
         dataset = datasets.ImageFolder('./training/tile', transform=transform)
-        loader = DataLoader(dataset, batch_size=64, shuffle=True, num_workers=8)    #, pin_memory=True)
+        loader = DataLoader(dataset, batch_size=64, shuffle=True, num_workers=8, pin_memory=True)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.to(device)
         criterion = nn.CrossEntropyLoss()
