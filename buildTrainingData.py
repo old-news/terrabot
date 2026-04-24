@@ -21,8 +21,8 @@ def buildTileTrainingData():
     lastNameID = max(nameIDs)
     for nameID in nameIDs:
         buildTileIDPair(nameID, message=f"Finished classifying frame {nameID}/{lastNameID}")
-    clampMaxFiles(500)
+    clampMaxFiles(750)
     removeDuplicates()
-    clampMaxFiles()
+    clampMaxFiles(500)
 
 buildTileTrainingData()
