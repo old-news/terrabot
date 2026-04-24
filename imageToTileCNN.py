@@ -1,11 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torchvision import datasets, transforms
+from torchvision import datasets
 from torch.utils.data import DataLoader
-import torchvision
 import torchvision.transforms as transforms
-import torch.nn.functional as F
 import os
 
 class image2TileCNN(nn.Module):
@@ -19,7 +17,7 @@ class image2TileCNN(nn.Module):
             nn.ReLU(),
             nn.Flatten()
         )
-        self.classifier = nn.Linear(32 * 8 * 8, len(os.listdir('captureData/classified_data')))
+        self.classifier = nn.Linear(32 * 8 * 8, len(os.listdir('./training/tile')))
         self.epochs = 0
         self.optimizer = optim.Adam(self.parameters(), lr=0.001, weight_decay=1e-5)
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=5)
@@ -34,8 +32,8 @@ class image2TileCNN(nn.Module):
             transforms.ToTensor(),
         ])
 
-        dataset = datasets.ImageFolder('captureData/classified_data', transform=transform)
-        loader = DataLoader(dataset, batch_size=64, shuffle=True, num_workers=8, pin_memory=True)
+        dataset = datasets.ImageFolder('./training/tile', transform=transform)
+        loader = DataLoader(dataset, batch_size=64, shuffle=True, num_workers=8)    #, pin_memory=True)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.to(device)
         criterion = nn.CrossEntropyLoss()
