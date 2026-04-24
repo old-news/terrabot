@@ -28,7 +28,6 @@ class image2TileCNN(nn.Module):
         return self.classifier(y)
 
     def trainModel(self, epochs=None):
-        print("Training...")
         if epochs is None: epochs = sys.maxsize * sys.maxsize
         transform = transforms.Compose([
             transforms.Resize((16, 16)), # Must match image size (16x16)
@@ -42,6 +41,7 @@ class image2TileCNN(nn.Module):
         criterion = nn.CrossEntropyLoss()
         runningLoss = 0.0
         self.train()
+        print("Training...")
         for epoch in range(epochs):
             runningLoss = 0.0
             for images, labels in loader:
