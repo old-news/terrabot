@@ -5,7 +5,7 @@ from torchvision import datasets
 from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
 import os, sys
-print("Done importing")
+if __name__ == '__main__': print("Done importing")
 
 class image2TileCNN(nn.Module):
     def __init__(self):
@@ -65,7 +65,7 @@ class image2TileCNN(nn.Module):
             'model_state_dict': self.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
             'scheduler_state_dict': self.scheduler.state_dict()
-        }, 'img2Tile.cnn')
+        }, './nn/tile.cnn')
 
     def load(self, path):
         checkpoint = torch.load(path, weights_only=False)
@@ -77,7 +77,7 @@ class image2TileCNN(nn.Module):
 if __name__ == '__main__':
     net = image2TileCNN()
     try:
-        net.load('img2Tile.cnn')
+        net.load('./nn/tile.cnn')
     except:
         pass
     net.trainModel()
