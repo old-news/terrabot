@@ -1,6 +1,7 @@
 import os
 import json
 import cv2
+import random
 from snipCapture import snipImageAndSaveClassified
 from janitor import removeDuplicates, clampMaxFiles 
 
@@ -17,10 +18,11 @@ def buildTileIDPair(nameID, message=None):
 
 
 def buildTileTrainingData():
-    nameIDs = sorted([int(name.split('.')[0]) for name in os.listdir(imageFramePath)])
+    nameIDs = [int(name.split('.')[0]) for name in os.listdir(imageFramePath)]
     lastNameID = max(nameIDs)
-    for nameID in nameIDs:
-        buildTileIDPair(nameID, message=f"Finished classifying frame {nameID}/{lastNameID}")
+    random.shuffle(nameIDs)
+    for i, nameID in enumerate(nameIDs):
+        buildTileIDPair(nameID, message=f"Finished classifying frame {nameID}/{lastNameID} (approximately {len(nameIDs) - i} left)")
     clampMaxFiles(750)
     removeDuplicates()
     clampMaxFiles(500)

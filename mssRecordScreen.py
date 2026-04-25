@@ -25,7 +25,7 @@ def matchFrame(name, imagesTimestamps):
         if stamp - timestamp > 1/120:
             print(f"No tick-matching frame capture for dataframe {nameID}")
             break; # Skip if the image capture and dataFrame capture are on different ticks
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGRA2RGB)
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
         cv2.imwrite(f'{imageFrameDir}{nameID}.png', image_rgb)
         print(f'Successfully matched dataframe {nameID}')
         break;
