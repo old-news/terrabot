@@ -4,9 +4,12 @@ import torch.optim as optim
 from torchvision import datasets
 from torch.utils.data import DataLoader, Dataset
 import torchvision.transforms as transforms
-import os, sys
+import os
+import sys
 import time
+import cv2
 if __name__ == '__main__': print("Done importing")
+
 
 class defaultCNN(nn.Module):
     def __init__(self):
@@ -15,7 +18,7 @@ class defaultCNN(nn.Module):
         self.datamean = 0
         self.datastd = 0
         transform = transforms.Compose([
-            transforms.Resize(self.inputReshape), # Not necessary, but just in case
+            transforms.Resize(self.inputReshape),  # Not necessary, but just in case
             transforms.ToTensor(),
         ])
         dataset = datasets.ImageFolder(self.trainpath, transform=transform)
@@ -23,13 +26,13 @@ class defaultCNN(nn.Module):
         for images, _ in loader:
             batch_samples = images.size(0)
             images = images.view(batch_samples, images.size(1), -1)
-            mean += images.mean(2).sum(0)
-            std += images.std(2).sum(0)
+            self.datamean += images.mean(2).sum(0)
+            self.datastd += images.std(2).sum(0)
 
         self.datamean /= len(loader.dataset)
         self.datastd /= len(loader.dataset)
         self.transform = transforms.Compose([
-            transforms.Resize(self.inputReshape), # Not necessary, but just in case
+            transforms.Resize(self.inputReshape),  # Not necessary, but just in case
             transforms.ColorJitter(brightness=0.4, contrast=0.4),
             transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 0.5)),
             transforms.ToTensor(),
@@ -39,7 +42,7 @@ class defaultCNN(nn.Module):
     def forward(self, x):
         y = self.features(x)
         return self.classifier(y)
-    
+
     def trainModel(self, epochs=None):
         if epochs is None: epochs = sys.maxsize * sys.maxsize
         dataset = datasets.ImageFolder(self.trainpath, transform=self.transform)
@@ -72,7 +75,7 @@ class defaultCNN(nn.Module):
             'epochs': self.epochs,
             'model_state_dict': self.state_dict(),
             'optimizer_state_dict': self.optimizer.state_dict(),
-            'scheduler_state_dict': self.scheduler.state_dict()
+            'scheduler_state_dict': self.scheduler.state_dict(),
             'datamean': self.datamean,
             'datastd': self.datastd
         }, self.savepath)
@@ -89,7 +92,7 @@ class defaultCNN(nn.Module):
             self.datastd = checkpoint['datastd']
         except:
             pass
-    
+
     def run(self, inputImage):
         # The model is trained in batches, which add an extra dimension
         # Unsqueeze(0) adds a dummy dimension for the dimensions to match when the model runs
@@ -97,7 +100,6 @@ class defaultCNN(nn.Module):
         self.eval()
         with torch.no_grad():
             return self(transformedImage)
-
 
 
 class offsetCNN(defaultCNN):
@@ -110,7 +112,7 @@ class offsetCNN(defaultCNN):
         self.features = nn.Sequential(
             nn.Conv2d(3, 16, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(4,4),
+            nn.MaxPool2d(4, 4),
             #nn.Conv2d(16, 32, kernel_size=3, padding=1),
             #nn.ReLU(),
             nn.Flatten(),
@@ -119,6 +121,7 @@ class offsetCNN(defaultCNN):
         self.classifier = nn.Linear(16 * int(self.inputReshape[0] / 4) * int(self.inputReshape / 4), len(os.listdir(self.trainpath)))
         self.optimizer = optim.Adam(self.parameters(), lr=0.001, weight_decay=1e-5)
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=5)
+
 
 class blockCNN(defaultCNN):
     def __init__(self, blocktype=None):
@@ -131,7 +134,7 @@ class blockCNN(defaultCNN):
         self.features = nn.Sequential(
             nn.Conv2d(3, 16, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(2,2),
+            nn.MaxPool2d(2, 2),
             nn.Conv2d(16, 32, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.Flatten(),
@@ -140,6 +143,7 @@ class blockCNN(defaultCNN):
         self.classifier = nn.Linear(32 * int(self.inputReshape[0] / 2) * int(self.inputReshape[1] / 2), len(os.listdir(self.trainpath)))
         self.optimizer = optim.Adam(self.parameters(), lr=0.001, weight_decay=1e-5)
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=5)
+
 
 class multiHeadDataset(Dataset):
     def __init__(self, root_dir, transform=None):
@@ -150,7 +154,7 @@ class multiHeadDataset(Dataset):
         self.categories = sorted([directory for directory in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, directory))])
         self.category2idx = {category: i for i, category in enumerate(self.categories)}
         unique_ids = set()
-        
+
         for category in self.categories:
             categoryPath = os.path.join(root_dir, category)
             ids = sorted([directory for directory in os.listdir(categoryPath) if os.path.isdir(os.path.join(categoryPath, directory))])
@@ -159,8 +163,8 @@ class multiHeadDataset(Dataset):
                 path = os.path.join(categoryPath, ID)
                 for imgName in os.listdir(path):
                     self.samples.append((os.path.join(path, imgName), self.category2idx[category], ID))
-        unique_ids = sorted(list(unique_ids))
-        self.id2idx = {ID: i for i, ID in enumerate(unique_ids)}
+        self.ids = sorted(list(unique_ids))
+        self.id2idx = {ID: i for i, ID in enumerate(self.ids)}
 
     def __len__(self):
         return len(self.samples)
@@ -172,9 +176,10 @@ class multiHeadDataset(Dataset):
         id_idx = self.id2idx[ID]
         return image, categoryIndex, id_idx
 
-class multiHeadModel(nn.Module):
+
+class multiHeadModel(blockCNN):
     def __init__(self, numCategories, numIDs):
-        super().__init__()
+        super(multiHeadModel).__init__()
         self.categoryHead = nn.Linear(512, numCategories)
         self.idHead = nn.Linear(512, numIDs)
 
@@ -184,13 +189,32 @@ class multiHeadModel(nn.Module):
         ID = self.idHead(features)
         return category, ID
 
-    def trainModel(self):
-        categoryPredicted, idPredicted = self(images)
-        categoryLoss = criterion(categoryPredicted, categoryTargets)
-        idLoss = criterion(idPredicted, idTargets)
-        total_loss = categoryLoss + idLoss
-        total_loss.backward()
-        optimizer.step()
+    def trainModel(self, epochs=None):
+        if epochs is None: epochs = sys.maxsize * sys.maxsize
+        dataset = multiHeadDataset('./trainig/tile', self.transform)
+        loader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=7)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.to(device)
+        criterion = nn.CrossEntropyLoss()
+        self.train()
+        for epoch in range(epochs):
+            start = time.perf_counter()
+            runningLoss = 0
+            for images, category, ID in loader:
+                images, category, ID = images.to(device), category.to(device), ID.to(device)
+                self.optimizer.zero_grad()
+                categoryPredicted, idPredicted = self(images)
+                categoryLoss = criterion(categoryPredicted, category)
+                idLoss = criterion(idPredicted, ID)
+                total_loss = categoryLoss + idLoss
+                total_loss.backward()
+                self.optimizer.step()
+                runningLoss += total_loss
+            self.scheduler.step(runningLoss)
+            print(f"Epoch {self.epochs+1:>6} | Loss: {runningLoss / len(loader):.6f} | Elapsed: {time.perf_counter() - start:.6f}")
+            self.epochs+=1
+            if self.epochs % 10 == 0: self.save()
+        self.eval()
 
 
 if __name__ == '__main__':
