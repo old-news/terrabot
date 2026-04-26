@@ -31,7 +31,7 @@ def areNpArraysSimilar(arr1, arr2):
 
 
 def getIDcategory(numID: int) -> str:
-    elif numID in [6, 7, 8, 9, 22, 37, 56, 58, 107, 108, 111, 166, 167, 168, 169, 204, 211, 221, 222, 223, 408]:
+    if numID in [6, 7, 8, 9, 22, 37, 56, 58, 107, 108, 111, 166, 167, 168, 169, 204, 211, 221, 222, 223, 408]:
         return 'ore'
     elif numID in [178]:
         return 'gem'
@@ -88,15 +88,16 @@ def classifyImage(nparray: np.ndarray, tileInfo) -> str:
     tileID = tileInfo['type']
     if tileInfo['hasTile'] is not False:
         if isDark: return 'tile/unknown'
+        category = getIDcategory(tileID)
         if tileID in [3, 4, 5, 13, 24, 28, 50, 61, 82, 83, 84, 91, 105, 110, 135, 137, 144, 178, 201, 209, 215, 235, 239, 254, 323, 376, 419, 420, 423, 429, 443, 583, 584, 585, 586, 587, 588, 589, 596, 597, 616, 634, 653, 663]:
             # Tile has important semantically meaningful subID
             # For example, the tileID could be for books, with one subID being the Water Bold (ID=50)
             # Or, one of the grass types could be a mushroom rather than just decorative (ID=3)
             tilefX = tileInfo['fX']
             tilefY = tileInfo['fY']
-            return f'tile/{tileID}_{tilefX}_{tilefY}'
+            return f'tile/{category}/{tileID}_{tilefX}_{tilefY}'
         else:
-            return f'tile/{tileID}'
+            return f'tile/{category}/{tileID}'
     if tileInfo['liquidAmount'] != 0 and (tileInfo['isSolid'] is True or tileInfo['isActuated'] is True):
         # Liquid
         if isDark: return 'liquid/unknown'
@@ -157,20 +158,32 @@ def tileImage(img: np.ndarray, nogoZone=None) -> np.ndarray:
     return tileImages
 
 
-def saveTiles(tileImages: np.ndarray, tileData: dict) -> None:
+def saveTiles(tileImages: np.ndarray, captureData: dict) -> None:
     classifiedImageCounts = dict()
+    tileData = captureData['TileData']
     # classifiedImageCounts is used because os.listdir takes a lot of time
     for mainPath in os.listdir(trainingPath):
-        for path in os.listdir(f'{trainingPath}/{mainPath}'):
-            classifiedImageCounts[f'{mainPath}/{path}'] = len(os.listdir(f'{trainingPath}/{mainPath}/{path}'))
-
+        for category in os.listdir(f'{trainingPath}/{mainPath}'):
+            ids = os.listdir(f'{trainingPath}/{mainPath}/{category}')
+            if len(ids) == 0:
+                classifiedImageCounts[f'{mainPath}/{category}'] = 0
+                continue
+            if os.path.isdir(f'{trainingPath}/{mainPath}/{category}/{ids[0]}'):
+                for ID in ids:
+                    classifiedImageCounts[f'{mainPath}/{category}/{ID}'] = len(os.listdir(f'{trainingPath}/{mainPath}/{category}/{ID}'))
+            else:
+                classifiedImageCounts[f'{mainPath}/{category}'] = len(os.listdir(f'{trainingPath}/{mainPath}/{category}'))
+    xmod = captureData['ScreenPosX'] % 16
+    ymod = captureData['ScreenPosY'] % 16
+    x_adjust = int(xmod >= 8)
+    y_adjust = int(ymod > 8)
     for y, imageRow in enumerate(tileImages):
         for x, image in enumerate(imageRow):
             #print(imageRow)
             if not isinstance(image, np.ndarray): continue
             # if np.mean(image) < 25: continue    # Image is too dark to tell what it is
             # ABOVE IS DEPRECATED: using tile lighting from tModLoader to determine if tile is too dark
-            tileInfo = tileData[x+1][y+1]
+            tileInfo = tileData[x+x_adjust][y+y_adjust]
             classified = classifyImage(image, tileInfo)
             path = f'{trainingPath}/{classified}'
             imgAlreadyInSet = False
@@ -183,7 +196,7 @@ def saveTiles(tileImages: np.ndarray, tileData: dict) -> None:
                 # Do not store a crap ton of images for common dataIDs (like dirt)
                 continue
             classifiedImageCounts[classified] = nameID + 1
-            cv2.imwrite(f'{path}/{nameID}.png', image)
+            cv2.imwrite(f'{path}/{nameID}-{xmod}_{ymod}.png', image)
 
 
 def snipImageAndSaveClassified(img: np.ndarray, captureData, endMessage=None, nogoZone=None) -> None:
@@ -203,6 +216,6 @@ def snipImageAndSaveClassified(img: np.ndarray, captureData, endMessage=None, no
     #x_adjust = 16 - int(captureData['ScreenPosX'])%16
     #y_adjust = 16 - int(captureData['ScreenPosY'])%16
     tileImages = tileImage(img, nogoZone)
-    saveTiles(tileImages, captureData['TileData'])
+    saveTiles(tileImages, captureData)
 
     if endMessage is not None: print(endMessage)

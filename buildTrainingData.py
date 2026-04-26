@@ -23,8 +23,8 @@ def buildTileTrainingData():
     random.shuffle(nameIDs)
     for i, nameID in enumerate(nameIDs):
         buildTileIDPair(nameID, message=f"Finished classifying frame {nameID}/{lastNameID} (approximately {len(nameIDs) - i} left)")
-    clampMaxFiles(750)
+    clampMaxFiles(maxFiles=750)
     removeDuplicates()
-    clampMaxFiles(500)
+    clampMaxFiles(maxFiles=500)
 
 buildTileTrainingData()

@@ -17,10 +17,10 @@ tileCategories = [
     'boss_summon',  # Plantera bulb, crimson heart, etc.
     'painting',
     'buff_station',  # Cake, ammo box
-    'mechanisms',   # Any item that uses wiring
+    'mechanism',   # Any item that uses wiring
     'boulder',
     'rubble',   # Decorative tiles that don't drop anything
-    'other'
+    'other',
     # The below is unused
     'common',   # Dirt, stone
     'biome',    # Biome specific: mud, hive block
