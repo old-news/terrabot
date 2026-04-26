@@ -17,7 +17,7 @@ def matchFrame(name, imagesTimestamps):
                 # print(f'Reading {dataFrameDir}{name}')
                 dataFrame = json.loads(ifile.read())
         except:
-            time.sleep(1)   # This gives the Mod time to finish writing the JSON file
+            time.sleep(0.1)   # This gives the Mod time to finish writing the JSON file
     timestamp = dataFrame['Timestamp']
     image_rgb = None
     for image, stamp in imagesTimestamps:
