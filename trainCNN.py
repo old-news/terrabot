@@ -14,7 +14,11 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from skimage import io
 import math
+import numpy as np
 from PIL import Image
+import functools
+import random
+import matplotlib.pyplot as plt
 if __name__ == '__main__': print("Done importing")
 
 
@@ -50,8 +54,8 @@ class defaultCNN(nn.Module):
         self.datastd /= len(loader.dataset)
         self.transform = transforms.Compose([
             #transforms.Resize(self.inputReshape),  # Not necessary, but just in case
-            #transforms.ColorJitter(brightness=0.4, contrast=0.4),
-            #transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 0.5)),
+            transforms.ColorJitter(brightness=0.4, contrast=0.4),
+            transforms.GaussianBlur(kernel_size=3, sigma=(0.1, 0.5)),
             transforms.ToTensor(),
             #transforms.Normalize(mean=self.datamean, std=self.datastd)
         ])
@@ -63,14 +67,16 @@ class defaultCNN(nn.Module):
         if epochs is None: epochs = sys.maxsize * sys.maxsize
         print('Indexing training data...')
         gputransform = v2.Compose([
+            #v2.ToTensor(),
             v2.Resize(self.inputReshape),
-            v2.ColorJitter(brightness=0.4, contrast=0.4),
-            v2.GaussianBlur(kernel_size=3, sigma=(0.1, 0.5)),
+            #v2.ColorJitter(brightness=0.4, contrast=0.4),
+            #v2.GaussianBlur(kernel_size=3, sigma=(0.1, 0.5)),
             # Convert to float and scale to [0, 1] if not already done
-            #v2.ToDtype(torch.float32, scale=True),
+            v2.ToDtype(torch.float32, scale=True),
             v2.Normalize(mean=self.datamean, std=self.datastd)
         ])
-        dataset = datasets.ImageFolder(self.trainpath, transform=self.transform)
+        #dataset = multiHeadDataset(transform=self.transform)  # datasets.ImageFolder(self.trainpath, transform=self.transform)
+        dataset = datasets.ImageFolder(self.trainpath, transform=self.trainingTransform)
         loader = DataLoader(dataset, batch_size=128, shuffle=True, num_workers=8, pin_memory=True)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.to(device)
@@ -81,21 +87,37 @@ class defaultCNN(nn.Module):
         for epoch in range(epochs):
             runningLoss = 0.0
             start = time.perf_counter()
-            for images, labels in loader:
-                images, labels = images.to(device, non_blocking=True), labels.to(device, non_blocking=True)
+            all_labels = []
+            all_predicted = []
+            for images, idlabels in loader:
+                #if random.random() < 0.1:
+                    #plt.imshow(images[0].permute(1, 2, 0).numpy())
+                    #plt.axis('off')  # Turn off axis labels
+                    #plt.show()
+                images, idlabels = images.to(device, non_blocking=True), idlabels.to(device, non_blocking=True)
                 self.optimizer.zero_grad()
                 images = gputransform(images)
-                outputs = self(images)
-                loss = criterion(outputs, labels)
+                ids = self(images)
+                loss = criterion(ids, idlabels) * 5 / 5  # criterion(cats, catlabels) / 5 + criterion(ids, idlabels) * 4 / 5
                 loss.backward()
                 self.optimizer.step()
-                runningLoss += loss.detach()
+                runningLoss += loss.item()
+                #for label in labels:
+                    #all_labels.append(label.detach().numpy())
+                #for output in outputs:
+                    #all_predicted.append(torch.argmax(output, 1))
             self.scheduler.step(runningLoss)
-            averageLoss = runningLoss.item() / len(loader)
+            averageLoss = runningLoss / len(loader)
             self.epochMessages.append(f"Epoch {self.epochs+1:>6} | Loss: {averageLoss:.6f} | Training accuracy: {100 * (math.e ** -averageLoss):.3f}% | Elapsed: {time.perf_counter() - start:.2f}")
             print(self.epochMessages[-1])
             self.epochs+=1
             if self.epochs % 10 == 0: self.save()
+            #confusionMatrix = confusion_matrix(np.array(all_labels), np.array(all_predicted))
+            #plt.figure(figsize=(10, 10))
+            #sns.heatmap(confusionMatrix, annot=False, cmap="Blues")
+            #plt.xlabel("Predicted")
+            #plt.ylabel("Actual")
+            #plt.show()
         self.eval()
 
     def save(self):
@@ -161,33 +183,83 @@ class blockCNN(defaultCNN):
         self.savepath = f'./nn/{blocktype}.cnn'
         self.trainpath = f'./training/{blocktype}'
         self.inputShape = (48, 48)
-        self.inputReshape = (16, 16)
+        self.inputReshape = (48, 48)
         super(blockCNN, self).__init__()
+        headSize = 128 * int(self.inputReshape[0] / 4) * int(self.inputReshape[1] / 4)
         self.features = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=3, padding=1),
-            nn.ReLU(),
+            nn.Conv2d(3, 32, kernel_size=3, padding=1),
+            nn.SiLU(),
             nn.MaxPool2d(2, 2),
-            nn.Conv2d(16, 32, kernel_size=3, padding=1),
-            nn.ReLU(),
-            #nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.SiLU(),
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.SiLU(),
+            #nn.AdaptiveMaxPool2d((1, 1)),
             nn.Flatten(),
+            nn.Linear(2048, len(os.listdir(self.trainpath))),
+            #nn.Linear(int(headSize/4), int(headSize/16)),
+            #nn.LeakyReLU(),
+            #nn.Flatten(),
             nn.Dropout(p=0.2)
         )
-        headSize = 32 * int(self.inputReshape[0] / 2) * int(self.inputReshape[1] / 2)
-        self.classifier = nn.Linear(headSize, len(os.listdir(self.trainpath)))
-        numCategories = len(os.listdir(self.trainpath))
-        self.categoryHead = nn.Linear(headSize, numCategories)
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 16, kernel_size=3, padding=1),
+            nn.SiLU(),
+            nn.Conv2d(16, 32, kernel_size=3, padding=1),
+            nn.SiLU(),
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(32, 48, kernel_size=3, padding=1),
+            nn.SiLU(),
+            nn.Conv2d(48, 64, kernel_size=3, padding=1),
+            nn.SiLU(),
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(64, 96, kernel_size=3, padding=1),
+            nn.SiLU(),
+            nn.Conv2d(96, 128, kernel_size=3, padding=1),
+            nn.SiLU(),
+            nn.MaxPool2d(2, 2),
+            #nn.Conv2d(96, 128, kernel_size=3, padding=1),
+            nn.Flatten(),
+            nn.Linear(4608, len(os.listdir(self.trainpath))),
+            #nn.Linear(int(headSize/4), int(headSize/16)),
+            #nn.LeakyReLU(),
+            #nn.Flatten(),
+            nn.Dropout(p=0.5)
+        )
+        
+        #self.classifier = nn.Linear(headSize, len(os.listdir(self.trainpath)))
+        #numCategories = len(os.listdir(self.trainpath))
+        #self.categoryHead = nn.Sequential(
+            #nn.Linear(headSize, headSize),
+            #nn.LayerNorm(numCategories),
+            #nn.SiLU()
+        #)
         ids = set()
         for category in os.listdir(self.trainpath):
             catPath = os.path.join(self.trainpath, category)
             for ID in os.listdir(catPath):
                 ids.add(os.path.join(catPath, ID))
-        self.idHead = nn.Linear(headSize, len(ids))
+        numids = len(ids)
+        self.idHead = nn.Sequential(
+            nn.Linear(128, numids),
+            #nn.ReLU()
+        )
+        #self.classifier = self.idHead
         #self.mha = nn.MultiheadAttention(embed_dim=32, num_heads=numCategories, batch_first=True)
         self.optimizer = optim.Adam(self.parameters(), lr=0.001, weight_decay=1e-5)
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=5)
 
-    def otherforward(self, x):
+    def forward(self, x):
+        y = self.features(x)
+        #catPred = self.categoryHead(y)
+        #combined = torch.cat([y, catPred], dim=1)
+        #mask = torch.sigmoid(catPred)
+        #masked = y * mask
+        #idPred = self.idHead(y)
+        #idPred = self.classifier(y)
+        return y  # idPred
+
         x = self.features(x)
         batchSize, channels, h, w = x.shape
         x = x.view(batchSize, channels, h*w)
@@ -196,10 +268,6 @@ class blockCNN(defaultCNN):
         x = x.permute(0, 2, 1)
         x = x.view(batchSize, channels, h, w)
         return x
-        y = self.features(x)
-        catPred = self.categoryHead(y)
-        idPred = self.idHead(y)
-        return catPred, idPred
 
     def modelTrain(self, epochs=None):
         if self.datamean is None:
@@ -235,7 +303,7 @@ class blockCNN(defaultCNN):
 
 
 class multiHeadDataset(Dataset):
-    def __init__(self, root_dir, transform=None):
+    def __init__(self, root_dir='./training/tile', transform=None):
         self.root_dir = root_dir
         self.transform = transform
         self.samples = []
@@ -258,13 +326,15 @@ class multiHeadDataset(Dataset):
     def __len__(self):
         return len(self.samples)
 
+    @functools.cache
     def __getitem__(self, idx):
         imagePath, categoryIndex, ID = self.samples[idx]
-        image = Image.open(imagePath)
-        #image = cv2.imread(imagePath)
-        if self.transform: image = self.transform(image)
+        #image = Image.open(imagePath)
+        image = cv2.imread(imagePath)
+        #if random.random() < 0.01: cv2.imshow(str(idx), image)
+        if self.transform is not None: image = self.transform(image)
         id_idx = self.id2idx[ID]
-        return image, categoryIndex, id_idx
+        return image, id_idx  # image, categoryIndex, id_idx
 
 
 class multiHeadModel(blockCNN):

@@ -72,7 +72,7 @@ def getIDcategory(numID: int) -> str:
         return 'mechanism'
     elif numID in [138, 664, 665, 711, 712, 713, 714, 715, 716]:
         return 'boulder'
-    elif numID in [185, 186, 187, 647, 648, 649, 650, 693, 694, 704, 705, ]:
+    elif numID in [165, 185, 186, 187, 647, 648, 649, 650, 693, 694, 704, 705]:
         return 'rubble'
     else:
         return 'other'
@@ -88,16 +88,16 @@ def classifyImage(nparray: np.ndarray, tileInfo) -> str:
     tileID = tileInfo['type']
     if tileInfo['hasTile'] is not False:
         if isDark: return 'tile/unknown'
-        category = getIDcategory(tileID)
+        #category = getIDcategory(tileID)
         if tileID in [3, 4, 5, 13, 24, 28, 50, 61, 82, 83, 84, 91, 105, 110, 135, 137, 144, 178, 201, 209, 215, 235, 239, 254, 323, 376, 419, 420, 423, 429, 443, 583, 584, 585, 586, 587, 588, 589, 596, 597, 616, 634, 653, 663]:
             # Tile has important semantically meaningful subID
             # For example, the tileID could be for books, with one subID being the Water Bold (ID=50)
             # Or, one of the grass types could be a mushroom rather than just decorative (ID=3)
             tilefX = tileInfo['fX']
             tilefY = tileInfo['fY']
-            return f'tile/{category}/{tileID}_{tilefX}_{tilefY}'
+            return f'tile/{tileID}_{tilefX}_{tilefY}'
         else:
-            return f'tile/{category}/{tileID}'
+            return f'tile/{tileID}'
     if tileInfo['liquidAmount'] != 0 and (tileInfo['isSolid'] is True or tileInfo['isActuated'] is True):
         # Liquid
         if isDark: return 'liquid/unknown'
@@ -146,9 +146,15 @@ def tileImage(img: np.ndarray, nogoZone=None) -> np.ndarray:
             if nogoZone is not None:
                 corners = ((16*x, 16*y), (16*(x+3), 16*y), (16*x, 16*(y+3)), (16*(x+3), 16*(y+3)))
                 for zone in nogoZone:
+                    zcorners = ((zone[0][0], zone[0][1]), (zone[0][0], zone[1][1]), (zone[1][0], zone[0][1]), (zone[1][0], zone[1][1]))
                     if isInNogoZone: break
                     for corner in corners:
                         if corner[0] > zone[0][0] and corner[0] < zone[1][0] and corner[1] > zone[0][1] and corner[1] < zone[1][1]:
+                            isInNogoZone = True
+                            break
+                    if isInNogoZone: break
+                    for zcorner in zcorners:
+                        if zcorner[0] > corners[0][0] and zcorner[0] < corners[1][0] and zcorner[1] > corners[0][1] and zcorner[1] < corners[1][1]:
                             isInNogoZone = True
                             break
             if isInNogoZone: continue
@@ -158,9 +164,32 @@ def tileImage(img: np.ndarray, nogoZone=None) -> np.ndarray:
     return tileImages
 
 
+def parseTileData(tileData):
+    out = []
+    for col in tileData:
+        out.append([])
+        for tile in col:
+            tileInfo = {
+                'type': tile[0],
+                'fX': tile[1],
+                'fY': tile[2],
+                'lighting': [tile[3], tile[4], tile[5]],
+                'liquidAmount': tile[6],
+                'liquidType': tile[7],
+                'wallType': tile[8],
+                'wallfX': tile[9],
+                'wallfY': tile[10],
+                'hasTile': tile[11] == 1,
+                'isActuated': tile[12] == 1,
+                'isSolid': tile[13] == 1
+            }
+            out[-1].append(tileInfo)
+    return out
+
+
 def saveTiles(tileImages: np.ndarray, captureData: dict) -> None:
     classifiedImageCounts = dict()
-    tileData = captureData['TileData']
+    tileData = parseTileData(captureData['TileData'])
     # classifiedImageCounts is used because os.listdir takes a lot of time
     for mainPath in os.listdir(trainingPath):
         for category in os.listdir(f'{trainingPath}/{mainPath}'):
