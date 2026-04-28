@@ -27,7 +27,7 @@ def buildTileTrainingData():
     lastNameID = max(nameIDs)
     random.shuffle(nameIDs)
     for i, nameID in enumerate(nameIDs):
-        buildTileIDPair(nameID, message=f"Finished classifying frame {nameID}/{lastNameID} (approximately {len(nameIDs) - i} left)")
+        buildTileIDPair(nameID, message=f"Finished classifying frame {nameID}/{lastNameID} \t(approximately {len(nameIDs) - i} left)")
     clampMaxFiles(maxFiles=750)
     print('Removing duplicates...')
     removeDuplicates()

@@ -88,7 +88,8 @@ def classifyImage(nparray: np.ndarray, tileInfo) -> str:
     tileID = tileInfo['type']
     if tileInfo['hasTile'] is not False:
         if isDark: return 'tile/unknown'
-        #category = getIDcategory(tileID)
+        category = getIDcategory(tileID)
+        return f'tile/{category}'
         if tileID in [3, 4, 5, 13, 24, 28, 50, 61, 82, 83, 84, 91, 105, 110, 135, 137, 144, 178, 201, 209, 215, 235, 239, 254, 323, 376, 419, 420, 423, 429, 443, 583, 584, 585, 586, 587, 588, 589, 596, 597, 616, 634, 653, 663]:
             # Tile has important semantically meaningful subID
             # For example, the tileID could be for books, with one subID being the Water Bold (ID=50)
@@ -136,10 +137,12 @@ def saveClassifyMiddleSnip(img: np.ndarray, captureData: dict) -> None:
     cv2.imwrite(f'{yPath}/{len(os.listdir(yPath))}.png', middleImg)
 
 
-def tileImage(img: np.ndarray, nogoZone=None) -> np.ndarray:
+def tileImage(img: np.ndarray, captureData, nogoZone=None) -> np.ndarray:
     height, width, channels = img.shape
     tileWidth, tileHeight = floor(width / 16) - 1, floor(height / 16) - 1
     tileImages = [[0 for x in range(tileWidth - 2)] for y in range(tileHeight - 2)]
+    x_offset = int(16 - (captureData['ScreenPosX'] % 16))
+    y_offset = int(16 - (captureData['ScreenPosY'] % 16))
     for x in range(tileWidth - 2):
         for y in range(tileHeight - 2):
             isInNogoZone = False
@@ -154,12 +157,12 @@ def tileImage(img: np.ndarray, nogoZone=None) -> np.ndarray:
                             break
                     if isInNogoZone: break
                     for zcorner in zcorners:
-                        if zcorner[0] > corners[0][0] and zcorner[0] < corners[1][0] and zcorner[1] > corners[0][1] and zcorner[1] < corners[1][1]:
+                        if zcorner[0] > corners[0][0] and zcorner[0] < corners[3][0] and zcorner[1] > corners[0][1] and zcorner[1] < corners[3][1]:
                             isInNogoZone = True
                             break
             if isInNogoZone: continue
             #newtilePixelArray = img[16*y + y_adjust:16*(y+1) + y_adjust, 16*x + x_adjust:16*(x+1) + x_adjust, :]
-            newtilePixelArray = img[16*y:16*(y+3), 16*x:16*(x+3), :]
+            newtilePixelArray = img[16*y+y_offset:16*(y+3)+y_offset, 16*x+x_offset:16*(x+3)+x_offset, :]
             tileImages[y][x] = newtilePixelArray
     return tileImages
 
@@ -204,8 +207,8 @@ def saveTiles(tileImages: np.ndarray, captureData: dict) -> None:
                 classifiedImageCounts[f'{mainPath}/{category}'] = len(os.listdir(f'{trainingPath}/{mainPath}/{category}'))
     xmod = captureData['ScreenPosX'] % 16
     ymod = captureData['ScreenPosY'] % 16
-    x_adjust = int(xmod >= 8)
-    y_adjust = int(ymod > 8)
+    x_adjust = 1 + int(xmod >= 8)
+    y_adjust = 1 + int(ymod >= 8)
     for y, imageRow in enumerate(tileImages):
         for x, image in enumerate(imageRow):
             #print(imageRow)
@@ -239,12 +242,13 @@ def snipImageAndSaveClassified(img: np.ndarray, captureData, endMessage=None, no
             ((17, 0), (357, 56)),       # Hotbar
             ((25, 60), (348, 134)),     # Two rows of buffs. Four rows goes to y=211
             ((660, 405), (707, 465)),    # The player
-            ((cursorPos[0], cursorPos[1]), (cursorPos[0] + 20, cursorPos[1] + 20))  # The cursor
+            ((cursorPos[0], cursorPos[1]), (cursorPos[0] + 20, cursorPos[1] + 20)), # The cursor
+            ((1134, 66), (1335, 269))   # The minimap
         ]
     #tileImages = [[0 for x in range(tileWidth - 2)] for y in range(tileHeight - 2)]
     #x_adjust = 16 - int(captureData['ScreenPosX'])%16
     #y_adjust = 16 - int(captureData['ScreenPosY'])%16
-    tileImages = tileImage(img, nogoZone)
+    tileImages = tileImage(img, captureData, nogoZone)
     saveTiles(tileImages, captureData)
 
     if endMessage is not None: print(endMessage)

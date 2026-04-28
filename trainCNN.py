@@ -183,7 +183,7 @@ class blockCNN(defaultCNN):
         self.savepath = f'./nn/{blocktype}.cnn'
         self.trainpath = f'./training/{blocktype}'
         self.inputShape = (48, 48)
-        self.inputReshape = (48, 48)
+        self.inputReshape = (16, 16)
         super(blockCNN, self).__init__()
         headSize = 128 * int(self.inputReshape[0] / 4) * int(self.inputReshape[1] / 4)
         self.features = nn.Sequential(
@@ -221,7 +221,7 @@ class blockCNN(defaultCNN):
             nn.MaxPool2d(2, 2),
             #nn.Conv2d(96, 128, kernel_size=3, padding=1),
             nn.Flatten(),
-            nn.Linear(4608, len(os.listdir(self.trainpath))),
+            nn.Linear(512, len(os.listdir(self.trainpath))),
             #nn.Linear(int(headSize/4), int(headSize/16)),
             #nn.LeakyReLU(),
             #nn.Flatten(),

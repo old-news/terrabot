@@ -8,10 +8,11 @@ import threading
 from snipCapture import snipImageAndSaveClassified
 import queue
 
+
 def matchFrame(name, imagesTimestamps):
     nameID = name.split('.')[0]
     dataFrame = None
-    while dataFrame == None:
+    while dataFrame is None:
         try:
             with open(f'{dataFrameDir}{name}', 'r') as ifile:
                 # print(f'Reading {dataFrameDir}{name}')
@@ -24,14 +25,15 @@ def matchFrame(name, imagesTimestamps):
         if stamp < timestamp: continue
         if stamp - timestamp > 1/120:
             print(f"No tick-matching frame capture for dataframe {nameID}")
-            break; # Skip if the image capture and dataFrame capture are on different ticks
+            break  # Skip if the image capture and dataFrame capture are on different ticks
         image_rgb = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
         cv2.imwrite(f'{imageFrameDir}{nameID}.png', image_rgb)
         print(f'Successfully matched dataframe {nameID}')
-        break;
+        break
     if image_rgb is None:
         print(f"Could not find valid timestamp for dataframe {nameID}")
         return
+
 
 with mss.MSS() as sct:
     print("Setting up...")
