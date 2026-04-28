@@ -141,8 +141,8 @@ def tileImage(img: np.ndarray, captureData, nogoZone=None) -> np.ndarray:
     height, width, channels = img.shape
     tileWidth, tileHeight = floor(width / 16) - 1, floor(height / 16) - 1
     tileImages = [[0 for x in range(tileWidth - 2)] for y in range(tileHeight - 2)]
-    x_offset = int(16 - (captureData['ScreenPosX'] % 16))
-    y_offset = int(16 - (captureData['ScreenPosY'] % 16))
+    x_offset = 16 - (captureData['ScreenPosX'] % 16)
+    y_offset = 16 - (captureData['ScreenPosY'] % 16)
     for x in range(tileWidth - 2):
         for y in range(tileHeight - 2):
             isInNogoZone = False
@@ -162,7 +162,7 @@ def tileImage(img: np.ndarray, captureData, nogoZone=None) -> np.ndarray:
                             break
             if isInNogoZone: continue
             #newtilePixelArray = img[16*y + y_adjust:16*(y+1) + y_adjust, 16*x + x_adjust:16*(x+1) + x_adjust, :]
-            newtilePixelArray = img[16*y+y_offset:16*(y+3)+y_offset, 16*x+x_offset:16*(x+3)+x_offset, :]
+            newtilePixelArray = img[16*y+y_offset:16*(y+1)+y_offset, 16*x+x_offset:16*(x+1)+x_offset, :]
             tileImages[y][x] = newtilePixelArray
     return tileImages
 
@@ -215,7 +215,7 @@ def saveTiles(tileImages: np.ndarray, captureData: dict) -> None:
             if not isinstance(image, np.ndarray): continue
             # if np.mean(image) < 25: continue    # Image is too dark to tell what it is
             # ABOVE IS DEPRECATED: using tile lighting from tModLoader to determine if tile is too dark
-            tileInfo = tileData[x+x_adjust][y+y_adjust]
+            tileInfo = tileData[x+1][y]
             classified = classifyImage(image, tileInfo)
             path = f'{trainingPath}/{classified}'
             imgAlreadyInSet = False
