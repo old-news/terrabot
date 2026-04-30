@@ -29,6 +29,7 @@ class defaultCNN(nn.Module):
         self.epochMessages = []
         self.datamean = None
         self.datastd = 0
+        self.accuracy = 0
         self.trainingTransform = transforms.Compose([
             transforms.Resize(self.inputReshape),  # Not necessary, but just in case
             transforms.ToTensor(),
@@ -69,49 +70,46 @@ class defaultCNN(nn.Module):
         gputransform = v2.Compose([
             #v2.ToTensor(),
             v2.Resize(self.inputReshape),
-            #v2.ColorJitter(brightness=0.4, contrast=0.4),
-            #v2.GaussianBlur(kernel_size=3, sigma=(0.1, 0.5)),
+            v2.ColorJitter(brightness=0.4, contrast=0.4),
+            v2.GaussianBlur(kernel_size=3, sigma=(0.1, 0.5)),
             # Convert to float and scale to [0, 1] if not already done
             v2.ToDtype(torch.float32, scale=True),
             v2.Normalize(mean=self.datamean, std=self.datastd)
         ])
         #dataset = multiHeadDataset(transform=self.transform)  # datasets.ImageFolder(self.trainpath, transform=self.transform)
-        dataset = datasets.ImageFolder(self.trainpath, transform=self.trainingTransform)
-        loader = DataLoader(dataset, batch_size=128, shuffle=True, num_workers=8, pin_memory=True)
+        dataset = datasets.ImageFolder(self.trainpath, transform=self.trainingTransform, target_transform=gputransform)
+        loader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=8, pin_memory=True)
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.to(device)
         criterion = nn.CrossEntropyLoss()
-        runningLoss = 0.0
         self.train()
         print(f"Training on {device}...")
         for epoch in range(epochs):
-            runningLoss = 0.0
+            runningLoss = 0
+            total = 0
+            correct = 0
             start = time.perf_counter()
-            all_labels = []
-            all_predicted = []
             for images, idlabels in loader:
-                #if random.random() < 0.1:
-                    #plt.imshow(images[0].permute(1, 2, 0).numpy())
-                    #plt.axis('off')  # Turn off axis labels
-                    #plt.show()
                 images, idlabels = images.to(device, non_blocking=True), idlabels.to(device, non_blocking=True)
                 self.optimizer.zero_grad()
-                images = gputransform(images)
                 ids = self(images)
                 loss = criterion(ids, idlabels) * 5 / 5  # criterion(cats, catlabels) / 5 + criterion(ids, idlabels) * 4 / 5
                 loss.backward()
                 self.optimizer.step()
                 runningLoss += loss.item()
-                #for label in labels:
-                    #all_labels.append(label.detach().numpy())
-                #for output in outputs:
-                    #all_predicted.append(torch.argmax(output, 1))
+                _, pred = torch.max(ids, 1)
+                total += idlabels.size(0)
+                correct += (pred == idlabels).sum().item()
             self.scheduler.step(runningLoss)
             averageLoss = runningLoss / len(loader)
-            self.epochMessages.append(f"Epoch {self.epochs+1:>6} | Loss: {averageLoss:.6f} | Training accuracy: {100 * (math.e ** -averageLoss):.3f}% | Elapsed: {time.perf_counter() - start:.2f}")
+            self.epochMessages.append(f"Epoch {self.epochs+1:>6} | Loss: {averageLoss:.6f} | Training accuracy: {100 * correct/total:.3f}% | Elapsed: {time.perf_counter() - start:.2f}")
             print(self.epochMessages[-1])
             self.epochs+=1
-            if self.epochs % 10 == 0: self.save()
+            if self.epochs % 10 == 0:
+                accuracy = self.validation('./validation/tile')
+                if accuracy > self.accuracy:
+                    self.accuracy = accuracy
+                    self.save()
             #confusionMatrix = confusion_matrix(np.array(all_labels), np.array(all_predicted))
             #plt.figure(figsize=(10, 10))
             #sns.heatmap(confusionMatrix, annot=False, cmap="Blues")
@@ -119,6 +117,50 @@ class defaultCNN(nn.Module):
             #plt.ylabel("Actual")
             #plt.show()
         self.eval()
+
+    def validation(self, path):
+        gputransform = v2.Compose([
+            #v2.ToTensor(),
+            v2.Resize(self.inputReshape),
+            #v2.ColorJitter(brightness=0.4, contrast=0.4),
+            #v2.GaussianBlur(kernel_size=3, sigma=(0.1, 0.5)),
+            # Convert to float and scale to [0, 1] if not already done
+            v2.ToDtype(torch.float32, scale=True),
+            v2.Normalize(mean=self.datamean, std=self.datastd)
+        ])
+        #dataset = multiHeadDataset(transform=self.transform)  # datasets.ImageFolder(self.trainpath, transform=self.transform)
+        dataset = datasets.ImageFolder(path, transform=self.trainingTransform, target_transform=gputransform)
+        loader = DataLoader(dataset, batch_size=128, shuffle=True, num_workers=8, pin_memory=True)
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        criterion = nn.CrossEntropyLoss()
+        self.train()
+        self.to(device)
+        self.eval()
+        with torch.no_grad():
+            runningLoss = 0
+            total = 0
+            correct = 0
+            start = time.perf_counter()
+            for images, idlabels in loader:
+                images, idlabels = images.to(device, non_blocking=True), idlabels.to(device, non_blocking=True)
+                ids = self(images)
+                loss = criterion(ids, idlabels) * 5 / 5  # criterion(cats, catlabels) / 5 + criterion(ids, idlabels) * 4 / 5
+                runningLoss += loss.item()
+                _, pred = torch.max(ids.data, 1)
+                total += idlabels.size(0)
+                correct += (pred == idlabels).sum().item()
+            averageLoss = runningLoss / len(loader)
+            accuracy = correct/total
+            print(f"Validation   = Loss: {averageLoss:.6f} = Validate accuracy: {100 * accuracy:.3f}% = Elapsed: {time.perf_counter() - start:.2f}")
+            #confusionMatrix = confusion_matrix(np.array(all_labels), np.array(all_predicted))
+            #plt.figure(figsize=(10, 10))
+            #sns.heatmap(confusionMatrix, annot=False, cmap="Blues")
+            #plt.xlabel("Predicted")
+            #plt.ylabel("Actual")
+            #plt.show()
+        self.train()
+        return accuracy
+
 
     def save(self):
         torch.save({
@@ -129,7 +171,9 @@ class defaultCNN(nn.Module):
             'datamean': self.datamean,
             'datastd': self.datastd,
             'epochMessages': self.epochMessages,
-            'transform': self.transform
+            'transform': self.transform,
+            'features': self.features,
+            'accuracy': self.accuracy
         }, self.savepath)
         print("model saved")
 
@@ -144,6 +188,8 @@ class defaultCNN(nn.Module):
             self.datastd = checkpoint['datastd']
             self.epochMessages = checkpoint['epochMessages']
             self.transform = checkpoint['transform']
+            self.features = checkpoint['features']
+            self.accuracy = checkpoint['accuracy']
         except:
             pass
 
@@ -179,30 +225,14 @@ class offsetCNN(defaultCNN):
 
 class blockCNN(defaultCNN):
     def __init__(self, blocktype=None):
-        if blocktype is None: blocktype = 'tile'
+        if blocktype is None: blocktype = 'offset_x'
         self.savepath = f'./nn/{blocktype}.cnn'
         self.trainpath = f'./training/{blocktype}'
-        self.inputShape = (48, 48)
+        self.inputShape = (32, 32)
         self.inputReshape = (16, 16)
         super(blockCNN, self).__init__()
         headSize = 128 * int(self.inputReshape[0] / 4) * int(self.inputReshape[1] / 4)
-        self.features = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=3, padding=1),
-            nn.SiLU(),
-            nn.MaxPool2d(2, 2),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.SiLU(),
-            nn.MaxPool2d(2, 2),
-            nn.Conv2d(64, 128, kernel_size=3, padding=1),
-            nn.SiLU(),
-            #nn.AdaptiveMaxPool2d((1, 1)),
-            nn.Flatten(),
-            nn.Linear(2048, len(os.listdir(self.trainpath))),
-            #nn.Linear(int(headSize/4), int(headSize/16)),
-            #nn.LeakyReLU(),
-            #nn.Flatten(),
-            nn.Dropout(p=0.2)
-        )
+        
         self.features = nn.Sequential(
             nn.Conv2d(3, 16, kernel_size=3, padding=1),
             nn.SiLU(),
@@ -227,7 +257,21 @@ class blockCNN(defaultCNN):
             #nn.Flatten(),
             nn.Dropout(p=0.5)
         )
-        
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, padding=1),
+            nn.BatchNorm2d(32),
+            nn.SiLU(),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1, stride=2),
+            nn.BatchNorm2d(64),
+            nn.SiLU(),
+            #nn.AdaptiveMaxPool2d((1, 1)),
+            nn.Flatten(),
+            nn.Linear(4096, len(os.listdir(self.trainpath))),
+            #nn.Linear(int(headSize/4), int(headSize/16)),
+            #nn.LeakyReLU(),
+            #nn.Flatten(),
+            nn.Dropout(p=0.7)
+        )
         #self.classifier = nn.Linear(headSize, len(os.listdir(self.trainpath)))
         #numCategories = len(os.listdir(self.trainpath))
         #self.categoryHead = nn.Sequential(
@@ -236,6 +280,8 @@ class blockCNN(defaultCNN):
             #nn.SiLU()
         #)
         ids = set()
+        self.mha1 = nn.MultiheadAttention(embed_dim=3, num_heads=3)
+        self.mha2 = nn.MultiheadAttention(embed_dim=3, num_heads=3)
         for category in os.listdir(self.trainpath):
             catPath = os.path.join(self.trainpath, category)
             for ID in os.listdir(catPath):
@@ -247,26 +293,23 @@ class blockCNN(defaultCNN):
         )
         #self.classifier = self.idHead
         #self.mha = nn.MultiheadAttention(embed_dim=32, num_heads=numCategories, batch_first=True)
-        self.optimizer = optim.Adam(self.parameters(), lr=0.001, weight_decay=1e-5)
-        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=5)
+        self.optimizer = optim.Adam(self.parameters(), lr=0.0001, weight_decay=3e-3)
+        self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=8)
 
     def forward(self, x):
-        y = self.features(x)
         #catPred = self.categoryHead(y)
         #combined = torch.cat([y, catPred], dim=1)
         #mask = torch.sigmoid(catPred)
         #masked = y * mask
         #idPred = self.idHead(y)
         #idPred = self.classifier(y)
-        return y  # idPred
-
-        x = self.features(x)
         batchSize, channels, h, w = x.shape
         x = x.view(batchSize, channels, h*w)
         x = x.permute(0, 2, 1)
-        x, _ = self.mha(x, x, x)
+        x, _ = self.mha1(x, x, x)
         x = x.permute(0, 2, 1)
         x = x.view(batchSize, channels, h, w)
+        x = self.features(x)
         return x
 
     def modelTrain(self, epochs=None):

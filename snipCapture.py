@@ -12,6 +12,7 @@ import math
 
 
 trainingPath = './training'
+validationPath = './validation'
 
 
 @lru_cache(maxsize=3000)
@@ -96,9 +97,9 @@ def classifyImage(nparray: np.ndarray, tileInfo) -> str:
             # Or, one of the grass types could be a mushroom rather than just decorative (ID=3)
             tilefX = tileInfo['fX']
             tilefY = tileInfo['fY']
-            return f'tile/{tileID}_{tilefX}_{tilefY}'
+            return f'tile/{category}/{tileID}_{tilefX}_{tilefY}'
         else:
-            return f'tile/{tileID}'
+            return f'tile/{category}/{tileID}'
     if tileInfo['liquidAmount'] != 0 and (tileInfo['isSolid'] is True or tileInfo['isActuated'] is True):
         # Liquid
         if isDark: return 'liquid/unknown'
@@ -129,40 +130,33 @@ def classifyImage(nparray: np.ndarray, tileInfo) -> str:
 def saveClassifyMiddleSnip(img: np.ndarray, captureData: dict) -> None:
     #img[284:484, 583:783]
     middleImg = img[284:484, 583:783]
-    x_offset = int(15 - (captureData['ScreenPosX'] % 16))
-    y_offset = int(15 - (captureData['ScreenPosY'] % 16))
-    xPath = f'{trainingPath}/offset/x_{x_offset}/'
-    yPath = f'{trainingPath}/offset/y_{y_offset}/'
+    x_adjust = 16 - int(captureData['ScreenPosX']) % 16
+    y_adjust = 16 - int(captureData['ScreenPosY']) % 16
+    xPath = f'{trainingPath if random.random() > 0.2 else validationPath}/offset_x/{x_adjust}/'
+    yPath = f'{trainingPath if random.random() > 0.2 else validationPath}/offset_y/{y_adjust}/'
+    if not os.path.exists(xPath):
+        os.makedirs(xPath)
+    if not os.path.exists(yPath):
+        os.makedirs(yPath)
     cv2.imwrite(f'{xPath}/{len(os.listdir(xPath))}.png', middleImg)
     cv2.imwrite(f'{yPath}/{len(os.listdir(yPath))}.png', middleImg)
 
 
-def tileImage(img: np.ndarray, captureData, nogoZone=None) -> np.ndarray:
+def tileImage(img: np.ndarray, captureData) -> np.ndarray:
     height, width, channels = img.shape
     tileWidth, tileHeight = floor(width / 16) - 1, floor(height / 16) - 1
     tileImages = [[0 for x in range(tileWidth - 2)] for y in range(tileHeight - 2)]
-    x_offset = 16 - (captureData['ScreenPosX'] % 16)
-    y_offset = 16 - (captureData['ScreenPosY'] % 16)
-    for x in range(tileWidth - 2):
-        for y in range(tileHeight - 2):
-            isInNogoZone = False
-            if nogoZone is not None:
-                corners = ((16*x, 16*y), (16*(x+3), 16*y), (16*x, 16*(y+3)), (16*(x+3), 16*(y+3)))
-                for zone in nogoZone:
-                    zcorners = ((zone[0][0], zone[0][1]), (zone[0][0], zone[1][1]), (zone[1][0], zone[0][1]), (zone[1][0], zone[1][1]))
-                    if isInNogoZone: break
-                    for corner in corners:
-                        if corner[0] > zone[0][0] and corner[0] < zone[1][0] and corner[1] > zone[0][1] and corner[1] < zone[1][1]:
-                            isInNogoZone = True
-                            break
-                    if isInNogoZone: break
-                    for zcorner in zcorners:
-                        if zcorner[0] > corners[0][0] and zcorner[0] < corners[3][0] and zcorner[1] > corners[0][1] and zcorner[1] < corners[3][1]:
-                            isInNogoZone = True
-                            break
-            if isInNogoZone: continue
+    x_adjust = 16 - int(captureData['ScreenPosX']) % 16
+    y_adjust = 16 - int(captureData['ScreenPosY']) % 16
+    x_adjust = 0
+    y_adjust = 0
+    #x_adjust = -16 * int(x_adjust < 8)
+    #y_adjust = 0  # -16 * int(y_adjust < 8)
+    for x in range(1, tileWidth - 2):
+        for y in range(1, tileHeight - 2):
+            #if isInNogoZone: continue
             #newtilePixelArray = img[16*y + y_adjust:16*(y+1) + y_adjust, 16*x + x_adjust:16*(x+1) + x_adjust, :]
-            newtilePixelArray = img[16*y+y_offset:16*(y+1)+y_offset, 16*x+x_offset:16*(x+1)+x_offset, :]
+            newtilePixelArray = img[16*y+y_adjust:16*(y+2)+y_adjust, 16*x+x_adjust:16*(x+2)+x_adjust, :]
             tileImages[y][x] = newtilePixelArray
     return tileImages
 
@@ -190,7 +184,7 @@ def parseTileData(tileData):
     return out
 
 
-def saveTiles(tileImages: np.ndarray, captureData: dict) -> None:
+def saveTiles(tileImages: np.ndarray, captureData: dict, nogoZone=None) -> None:
     classifiedImageCounts = dict()
     tileData = parseTileData(captureData['TileData'])
     # classifiedImageCounts is used because os.listdir takes a lot of time
@@ -211,18 +205,38 @@ def saveTiles(tileImages: np.ndarray, captureData: dict) -> None:
     y_adjust = 1 + int(ymod >= 8)
     for y, imageRow in enumerate(tileImages):
         for x, image in enumerate(imageRow):
+            isInNogoZone = False
+            if nogoZone is not None:
+                corners = ((16*x, 16*y), (16*(x+3), 16*y), (16*x, 16*(y+3)), (16*(x+3), 16*(y+3)))
+                for zone in nogoZone:
+                    zcorners = ((zone[0][0], zone[0][1]), (zone[0][0], zone[1][1]), (zone[1][0], zone[0][1]), (zone[1][0], zone[1][1]))
+                    if isInNogoZone: break
+                    for corner in corners:
+                        if corner[0] > zone[0][0] and corner[0] < zone[1][0] and corner[1] > zone[0][1] and corner[1] < zone[1][1]:
+                            isInNogoZone = True
+                            break
+                    if isInNogoZone: break
+                    for zcorner in zcorners:
+                        if zcorner[0] > corners[0][0] and zcorner[0] < corners[3][0] and zcorner[1] > corners[0][1] and zcorner[1] < corners[3][1]:
+                            isInNogoZone = True
+                            break
+            if isInNogoZone: continue
             #print(imageRow)
-            if not isinstance(image, np.ndarray): continue
+            #if not isinstance(image, np.ndarray): continue
             # if np.mean(image) < 25: continue    # Image is too dark to tell what it is
             # ABOVE IS DEPRECATED: using tile lighting from tModLoader to determine if tile is too dark
-            tileInfo = tileData[x+1][y]
+            tileInfo = tileData[x][y]
             classified = classifyImage(image, tileInfo)
-            path = f'{trainingPath}/{classified}'
+            mainPlace = trainingPath if random.random() > 0.2 else validationPath
+            path = f'{mainPlace}/{classified}'
             imgAlreadyInSet = False
             nameID = classifiedImageCounts.get(classified)
             if nameID is None:
-                os.mkdir(path)
                 nameID = 0
+            if not os.path.exists(path):
+                os.makedirs(path)
+                mainPlace = trainingPath
+                path = f'{mainPlace}/{classified}'
             if imgAlreadyInSet: continue
             if random.random() > 1 / (math.e ** ((nameID - 500) / 500)):
                 # Do not store a crap ton of images for common dataIDs (like dirt)
@@ -233,8 +247,9 @@ def saveTiles(tileImages: np.ndarray, captureData: dict) -> None:
 
 def snipImageAndSaveClassified(img: np.ndarray, captureData, endMessage=None, nogoZone=None) -> None:
     saveClassifyMiddleSnip(img, captureData)
+    if captureData['IsInventoryOpen']: return
     if nogoZone is None:
-        # This nogoZone is formatted for a UI scale of 80%
+        # This nogoZone is formatted for a UI scale of 78%
         cursorPos = captureData['CursorPos']
         nogoZone = [
             ((1135, 13), (1330, 63)),   # Health
@@ -242,13 +257,13 @@ def snipImageAndSaveClassified(img: np.ndarray, captureData, endMessage=None, no
             ((17, 0), (357, 56)),       # Hotbar
             ((25, 60), (348, 134)),     # Two rows of buffs. Four rows goes to y=211
             ((660, 405), (707, 465)),    # The player
-            ((cursorPos[0], cursorPos[1]), (cursorPos[0] + 20, cursorPos[1] + 20)), # The cursor
+            ((cursorPos[0], cursorPos[1]), (cursorPos[0] + 20, cursorPos[1] + 20)),  # The cursor
             ((1134, 66), (1335, 269))   # The minimap
         ]
     #tileImages = [[0 for x in range(tileWidth - 2)] for y in range(tileHeight - 2)]
     #x_adjust = 16 - int(captureData['ScreenPosX'])%16
     #y_adjust = 16 - int(captureData['ScreenPosY'])%16
-    tileImages = tileImage(img, captureData, nogoZone)
-    saveTiles(tileImages, captureData)
+    tileImages = tileImage(img, captureData)
+    saveTiles(tileImages, captureData, nogoZone)
 
     if endMessage is not None: print(endMessage)
