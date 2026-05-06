@@ -111,10 +111,11 @@ def clearTrainingData():
     os.mkdir('./training/wall')
     os.mkdir('./training/air')
     os.mkdir('./training/liquid')
-    os.mkdir('./training/offset')
+    os.mkdir('./training/offset_x')
+    os.mkdir('./training/offset_y')
     for i in range(16):
-        os.mkdir(f'./training/offset/x_{i}')
-        os.mkdir(f'./training/offset/y_{i}')
+        os.mkdir(f'./training/offset_x/{i}')
+        os.mkdir(f'./training/offset_y/{i}')
     for path in dataEnum.tileCategories:
         os.mkdir(f'./training/tile/{path}')
 

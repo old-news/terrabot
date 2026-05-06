@@ -9,10 +9,10 @@ import os
 import sys
 import time
 import cv2
-from sklearn.metrics import confusion_matrix
-import seaborn as sns
+#from sklearn.metrics import confusion_matrix
+#import seaborn as sns
 import matplotlib.pyplot as plt
-from skimage import io
+#from skimage import io
 import math
 import numpy as np
 from PIL import Image
@@ -60,6 +60,9 @@ class defaultCNN(nn.Module):
             transforms.ToTensor(),
             #transforms.Normalize(mean=self.datamean, std=self.datastd)
         ])
+        self.validationDataset = None
+        self.validationLoader = None
+        self.device = None
 
     def trainModel(self, epochs=None):
         if self.datamean is None:
@@ -77,20 +80,20 @@ class defaultCNN(nn.Module):
             v2.Normalize(mean=self.datamean, std=self.datastd)
         ])
         #dataset = multiHeadDataset(transform=self.transform)  # datasets.ImageFolder(self.trainpath, transform=self.transform)
-        dataset = datasets.ImageFolder(self.trainpath, transform=self.trainingTransform, target_transform=gputransform)
+        dataset = flattenDataset(self.trainpath, transform=self.trainingTransform, target_transform=gputransform)
         loader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=8, pin_memory=True)
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.to(device)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.to(self.device)
         criterion = nn.CrossEntropyLoss()
         self.train()
-        print(f"Training on {device}...")
+        print(f"Training on {self.device}...")
         for epoch in range(epochs):
             runningLoss = 0
             total = 0
             correct = 0
             start = time.perf_counter()
             for images, idlabels in loader:
-                images, idlabels = images.to(device, non_blocking=True), idlabels.to(device, non_blocking=True)
+                images, idlabels = images.to(self.device, non_blocking=True), idlabels.to(self.device, non_blocking=True)
                 self.optimizer.zero_grad()
                 ids = self(images)
                 loss = criterion(ids, idlabels) * 5 / 5  # criterion(cats, catlabels) / 5 + criterion(ids, idlabels) * 4 / 5
@@ -106,7 +109,7 @@ class defaultCNN(nn.Module):
             print(self.epochMessages[-1])
             self.epochs+=1
             if self.epochs % 10 == 0:
-                accuracy = self.validation('./validation/tile')
+                accuracy = self.validation()
                 if accuracy > self.accuracy:
                     self.accuracy = accuracy
                     self.save()
@@ -118,40 +121,34 @@ class defaultCNN(nn.Module):
             #plt.show()
         self.eval()
 
-    def validation(self, path):
+    def validation(self):
+        # datasets.ImageFolder(self.trainpath, transform=self.transform)
         gputransform = v2.Compose([
-            #v2.ToTensor(),
             v2.Resize(self.inputReshape),
-            #v2.ColorJitter(brightness=0.4, contrast=0.4),
-            #v2.GaussianBlur(kernel_size=3, sigma=(0.1, 0.5)),
             # Convert to float and scale to [0, 1] if not already done
             v2.ToDtype(torch.float32, scale=True),
             v2.Normalize(mean=self.datamean, std=self.datastd)
         ])
-        #dataset = multiHeadDataset(transform=self.transform)  # datasets.ImageFolder(self.trainpath, transform=self.transform)
-        dataset = datasets.ImageFolder(path, transform=self.trainingTransform, target_transform=gputransform)
-        loader = DataLoader(dataset, batch_size=128, shuffle=True, num_workers=8, pin_memory=True)
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        criterion = nn.CrossEntropyLoss()
-        self.train()
-        self.to(device)
+        if self.validationDataset is None:
+            print("Indexing validation data...")
+            self.validationDataset = flattenDataset(self.validationpath, transform=self.trainingTransform, target_transform=gputransform)
+            self.validationLoader = DataLoader(self.validationDataset, batch_size=32, shuffle=True, num_workers=8, pin_memory=True)
         self.eval()
+        print("validating...")
         with torch.no_grad():
-            runningLoss = 0
             total = 0
             correct = 0
             start = time.perf_counter()
-            for images, idlabels in loader:
-                images, idlabels = images.to(device, non_blocking=True), idlabels.to(device, non_blocking=True)
-                ids = self(images)
-                loss = criterion(ids, idlabels) * 5 / 5  # criterion(cats, catlabels) / 5 + criterion(ids, idlabels) * 4 / 5
-                runningLoss += loss.item()
-                _, pred = torch.max(ids.data, 1)
-                total += idlabels.size(0)
-                correct += (pred == idlabels).sum().item()
-            averageLoss = runningLoss / len(loader)
+            for images, labels in self.validationLoader:
+                images, images.to(self.device, non_blocking=True), labels.to(self.device, non_blocking=True)
+                outputs = self(images)
+                #loss = criterion(ids, idlabels) * 5 / 5  # criterion(cats, catlabels) / 5 + criterion(ids, idlabels) * 4 / 5
+                #runningLoss += loss.item()
+                _, predicted = torch.max(outputs, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
             accuracy = correct/total
-            print(f"Validation   = Loss: {averageLoss:.6f} = Validate accuracy: {100 * accuracy:.3f}% = Elapsed: {time.perf_counter() - start:.2f}")
+            print(f"Validation   = Loss: uncalcd. = Validate accuracy: {100 * accuracy:.3f}% = Elapsed: {time.perf_counter() - start:.2f}")
             #confusionMatrix = confusion_matrix(np.array(all_labels), np.array(all_predicted))
             #plt.figure(figsize=(10, 10))
             #sns.heatmap(confusionMatrix, annot=False, cmap="Blues")
@@ -160,7 +157,6 @@ class defaultCNN(nn.Module):
             #plt.show()
         self.train()
         return accuracy
-
 
     def save(self):
         torch.save({
@@ -224,41 +220,19 @@ class offsetCNN(defaultCNN):
 
 
 class blockCNN(defaultCNN):
-    def __init__(self, blocktype=None):
-        if blocktype is None: blocktype = 'offset_x'
-        self.savepath = f'./nn/{blocktype}.cnn'
-        self.trainpath = f'./training/{blocktype}'
-        self.inputShape = (32, 32)
+    def __init__(self, trainpath=None):
+        self.name = 'block'
+        if trainpath is not None and trainpath.replace('./', '').replace('/', '') != 'training':
+            self.name = ''.join(trainpath.split('training')[1:])[1:]
+        if trainpath is None: trainpath = './training'
+        self.trainpath = trainpath
+        self.validationpath = trainpath.replace('training', 'validation')
+        self.savepath = f'./nn/{self.name}'
+        self.inputShape = (16, 16)
         self.inputReshape = (16, 16)
         super(blockCNN, self).__init__()
-        headSize = 128 * int(self.inputReshape[0] / 4) * int(self.inputReshape[1] / 4)
-        
         self.features = nn.Sequential(
-            nn.Conv2d(3, 16, kernel_size=3, padding=1),
-            nn.SiLU(),
-            nn.Conv2d(16, 32, kernel_size=3, padding=1),
-            nn.SiLU(),
-            nn.MaxPool2d(2, 2),
-            nn.Conv2d(32, 48, kernel_size=3, padding=1),
-            nn.SiLU(),
-            nn.Conv2d(48, 64, kernel_size=3, padding=1),
-            nn.SiLU(),
-            nn.MaxPool2d(2, 2),
-            nn.Conv2d(64, 96, kernel_size=3, padding=1),
-            nn.SiLU(),
-            nn.Conv2d(96, 128, kernel_size=3, padding=1),
-            nn.SiLU(),
-            nn.MaxPool2d(2, 2),
-            #nn.Conv2d(96, 128, kernel_size=3, padding=1),
-            nn.Flatten(),
-            nn.Linear(512, len(os.listdir(self.trainpath))),
-            #nn.Linear(int(headSize/4), int(headSize/16)),
-            #nn.LeakyReLU(),
-            #nn.Flatten(),
-            nn.Dropout(p=0.5)
-        )
-        self.features = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=3, padding=1),
+            nn.Conv2d(3, 32, kernel_size=3, padding=1, stride=2),
             nn.BatchNorm2d(32),
             nn.SiLU(),
             nn.Conv2d(32, 64, kernel_size=3, padding=1, stride=2),
@@ -266,83 +240,82 @@ class blockCNN(defaultCNN):
             nn.SiLU(),
             #nn.AdaptiveMaxPool2d((1, 1)),
             nn.Flatten(),
-            nn.Linear(4096, len(os.listdir(self.trainpath))),
-            #nn.Linear(int(headSize/4), int(headSize/16)),
-            #nn.LeakyReLU(),
-            #nn.Flatten(),
-            nn.Dropout(p=0.7)
+            nn.Linear(1024, len(os.listdir(self.trainpath))),
+            nn.Dropout(p=0.5)
         )
-        #self.classifier = nn.Linear(headSize, len(os.listdir(self.trainpath)))
-        #numCategories = len(os.listdir(self.trainpath))
-        #self.categoryHead = nn.Sequential(
-            #nn.Linear(headSize, headSize),
-            #nn.LayerNorm(numCategories),
-            #nn.SiLU()
-        #)
-        ids = set()
-        self.mha1 = nn.MultiheadAttention(embed_dim=3, num_heads=3)
-        self.mha2 = nn.MultiheadAttention(embed_dim=3, num_heads=3)
-        for category in os.listdir(self.trainpath):
-            catPath = os.path.join(self.trainpath, category)
-            for ID in os.listdir(catPath):
-                ids.add(os.path.join(catPath, ID))
-        numids = len(ids)
-        self.idHead = nn.Sequential(
-            nn.Linear(128, numids),
-            #nn.ReLU()
-        )
-        #self.classifier = self.idHead
-        #self.mha = nn.MultiheadAttention(embed_dim=32, num_heads=numCategories, batch_first=True)
-        self.optimizer = optim.Adam(self.parameters(), lr=0.0001, weight_decay=3e-3)
+        # Multihead attention allows the model to understand spatial aspects of an image
+        # Unsure if this is useful for blocks
+        self.mha = nn.MultiheadAttention(embed_dim=3, num_heads=3, batch_first=True)
+        self.optimizer = optim.Adam(self.parameters(), lr=0.001, weight_decay=1e-4)
         self.scheduler = optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, 'min', patience=8)
 
     def forward(self, x):
-        #catPred = self.categoryHead(y)
-        #combined = torch.cat([y, catPred], dim=1)
-        #mask = torch.sigmoid(catPred)
-        #masked = y * mask
-        #idPred = self.idHead(y)
-        #idPred = self.classifier(y)
         batchSize, channels, h, w = x.shape
         x = x.view(batchSize, channels, h*w)
         x = x.permute(0, 2, 1)
-        x, _ = self.mha1(x, x, x)
+        x, _ = self.mha(x, x, x)
         x = x.permute(0, 2, 1)
         x = x.view(batchSize, channels, h, w)
         x = self.features(x)
         return x
 
-    def modelTrain(self, epochs=None):
-        if self.datamean is None:
-            self.datamean = 0
-            self.calculateNormalizationData()
-        if epochs is None: epochs = sys.maxsize * sys.maxsize
-        print('Indexing training data...')
-        dataset = datasets.ImageFolder(self.trainpath, transform=self.transform)
-        loader = DataLoader(dataset, batch_size=128, shuffle=True, num_workers=8, pin_memory=True)
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.to(device)
-        criterion = nn.CrossEntropyLoss()
-        runningLoss = 0.0
-        self.train()
-        print("Training...")
-        for epoch in range(epochs):
-            runningLoss = 0.0
-            start = time.perf_counter()
-            for images, labels in loader:
-                images, labels = images.to(device), labels.to(device)
-                self.optimizer.zero_grad()
-                predicted = self(images)
-                loss = criterion(predicted, labels)
-                loss.backward()
-                self.optimizer.step()
-                runningLoss += loss.item()
-            self.scheduler.step(runningLoss)
-            self.epochMessages.append(f"Epoch {self.epochs+1:>6} | Loss: {runningLoss / len(loader):.6f} | Elapsed: {time.perf_counter() - start:.6f}")
-            print(self.epochMessages[-1])
-            self.epochs+=1
-            if self.epochs % 10 == 0: self.save()
-        self.eval()
+
+class flattenDataset(Dataset):
+    """
+        Builds a dataset that takes in dir like this with root dir as training:
+        training /
+            category1 /
+                group1 /
+                    files...
+                group2 /
+                    files...
+            category2 /
+                group1 /
+                    files...
+                group2 /
+                    files...
+                group3 /
+                    files...
+        And makes it be read like this:
+        training /
+            category1 /
+                files...
+            category2 /
+                files...
+    """
+    def __init__(self, root_dir, transform=None, target_transform=None):
+        self.root_dir = root_dir
+        self.transform = transform
+        self.target_transform = target_transform
+        self.categories = sorted([directory for directory in os.listdir(root_dir) if os.path.isdir(os.path.join(root_dir, directory))])
+        self.catalog = {category: self.recursivelyGetFilesInDir(os.path.join(root_dir, category)) for category in self.categories}
+        self.samples = []
+        for category in self.categories:
+            for file in self.recursivelyGetFilesInDir(os.path.join(root_dir, category)):
+                self.samples.append((file, category))
+
+    def recursivelyGetFilesInDir(self, directory):
+        files = []
+        for path in os.listdir(directory):
+            subPath = os.path.join(directory, path)
+            if os.path.isdir(subPath):
+                files.extend(self.recursivelyGetFilesInDir(subPath))
+            else:
+                files.append(subPath)
+        return files
+
+    def __len__(self):
+        return sum(len(value) for value in self.catalog.values())
+
+    @functools.cache
+    def __getitem__(self, index):
+        imagePath, category = self.samples[index]
+        image = Image.open(imagePath)
+        #image = cv2.imread(imagePath)
+        if self.transform is not None: image = self.transform(image)
+        if self.target_transform is not None: image = self.target_transform(image)
+        categoryIndex = self.categories.index(category)
+        return image, categoryIndex
 
 
 class multiHeadDataset(Dataset):
@@ -471,16 +444,16 @@ class multiHeadModel(blockCNN):
 
 if __name__ == '__main__':
     if len(sys.argv) == 1:
-        net = blockCNN(blocktype='tile')
+        net = blockCNN(trainpath='./training')
         #net.calculateNormalizationData()
         net.load()
         # Below is for Colab training
         #net.savepath = './content/drive/MyDrive/terrabot/nn/tile.cnn'
-        net = torch.compile(net)
+        net = torch.compile(net)  # backend="cudagraphs")
         net.trainModel()
         exit(0)
     if sys.argv[1] in ['tile', 'air', 'wall', 'liquid']:
-        net = blockCNN(blocktype=sys.argv[1])
+        net = blockCNN(trainpath=f'./training/{sys.argv[1]}')
         net.load()
         net.trainModel()
     elif sys.argv[1] == 'offset':

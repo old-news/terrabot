@@ -13,6 +13,7 @@ import math
 
 trainingPath = './training'
 validationPath = './validation'
+BLOCK_MIN_BRIGHTNESS = 0.1
 
 
 @lru_cache(maxsize=3000)
@@ -79,28 +80,187 @@ def getIDcategory(numID: int) -> str:
         return 'other'
 
 
-def classifyImage(nparray: np.ndarray, tileInfo) -> str:
-    # potentialClasses = []   # A tile might have water and a wall, so we would want to randomly decide which one so the AI learns for both cases
-    # ABOVE IS DEPRECATED
+def classifyTile(tileInfo: dict):
+    tileID = tileInfo['type']
+    if tileID in [441, 467]:
+        # Variants of chest (dead man's, trapped)
+        tileID = 21
+    fX = tileInfo['fX']
+    fY = tileInfo['fY']
+    relevantExtractor = {
+        (3, 144, 0): 'mushroom',
+        (110, 144, 0): 'mushroom',  # In hallowed biome
+        (201, 270, 0): 'vicious_mushroom',
+        (24, 144, 0): 'vile_mushroom',
+        (5, 0, 0): 'tree_base',
+        (5, 0, 22): 'tree_base',
+        (5, 0, 44): 'tree_base',
+        (5, 0, 132): 'tree_base',
+        (5, 0, 154): 'tree_base',
+        (5, 0, 176): 'tree_base',
+        (5, 66, 132): 'tree_base',
+        (5, 66, 154): 'tree_base',
+        (5, 66, 176): 'tree_base',
+        (5, 88, 132): 'tree_base',
+        (5, 88, 154): 'tree_base',
+        (5, 88, 176): 'tree_base',
+        (596, 0, 88): 'sakura_base',
+        (596, 66, 132): 'sakura_base',
+        (596, 88, 176): 'sakura_base',
+        (616, 0, 22): 'yellow_willow_base',
+        (634, 0, 0): 'ashtree_base',
+        (634, 0, 22): 'ashtree_base',
+        (634, 0, 44): 'ashtree_base',
+        (634, 0, 132): 'ashtree_base',
+        (634, 0, 154): 'ashtree_base',
+        (634, 0, 176): 'ashtree_base',
+        (634, 66, 132): 'ashtree_base',
+        (634, 66, 154): 'ashtree_base',
+        (634, 66, 176): 'ashtree_base',
+        (634, 88, 132): 'ashtree_base',
+        (634, 88, 154): 'ashtree_base',
+        (634, 88, 176): 'ashtree_base',
+        (323, 66, 0): 'palm_base',
+        (80, 0, 36): 'cactus_base',
+        (13, 0, 0): 'placed_bottle',
+        (13, 18, 0): 'placed_lesser_healing_potion',
+        (13, 36, 0): 'placed_lesser_mana_potion',
+        (21, 36, 0): 'gold_chest',
+        (21, 36, 18): 'gold_chest',
+        (21, 54, 0): 'gold_chest',
+        (21, 54, 18): 'gold_chest',
+        (21, 72, 0): 'locked_gold_chest',
+        (21, 72, 18): 'locked_gold_chest',
+        (21, 90, 0): 'locked_gold_chest',
+        (21, 90, 18): 'locked_gold_chest',
+        (21, 108, 0): 'shadow_chest',
+        (21, 108, 18): 'shadow_chest',
+        (21, 126, 0): 'shadow_chest',
+        (21, 126, 18): 'shadow_chest',
+        (21, 144, 0): 'locked_shadow_chest',
+        (21, 144, 18): 'locked_shadow_chest',
+        (21, 162, 0): 'locked_shadow_chest',
+        (21, 162, 18): 'locked_shadow_chest',
+        (50, 90, 0): 'placed_water_bolt',
+        (185, 576, 18): 'rubble_copper_bag',
+        (50, 90, 0): 'placed_water_bolt',
+        (185, 576, 18): 'rubble_copper_bag',
+        (50, 90, 0): 'placed_water_bolt',
+        (185, 576, 18): 'rubble_copper_bag',
+        (50, 90, 0): 'placed_water_bolt',
+        (185, 576, 18): 'rubble_copper_bag',
+        (185, 594, 18): 'rubble_copper_bag',
+        (61, 162, 0): 'natures_gift',
+        (61, 144, 0): 'jungle_spore',
+        (583, 0, 22): 'gemtree_topaz_base',
+        (584, 0, 22): 'gemtree_amethyst_base',
+        (585, 0, 22): 'gemtree_sapphire_base',
+        (586, 0, 22): 'gemtree_emerald_base',
+        (587, 0, 22): 'gemtree_ruby_base',
+        (588, 0, 22): 'gemtree_diamond_base',
+        (589, 0, 22): 'gemtree_amber_base',
+        (590, 36, 0): 'topaz_sapling',
+        (590, 36, 18): 'topaz_sapling',
+        (590, 90, 0): 'amethyst_sapling',
+        (590, 90, 18): 'amethyst_sapling',
+        (590, 108, 0): 'sapphire_sapling',
+        (590, 108, 18): 'sapphire_sapling',
+        (590, 180, 0): 'emerald_sapling',
+        (590, 180, 18): 'emerald_sapling',
+        (590, 252, 0): 'ruby_sapling',
+        (590, 252, 18): 'ruby_sapling',
+        (590, 306, 0): 'diamond_sapling',
+        (590, 306, 18): 'diamond_sapling',
+        (590, 324, 0): 'amber_sapling',
+        (590, 324, 18): 'amber_sapling',
+    }
+    categorized = relevantExtractor.get((tileID, fX, fY))
+    if categorized is not None:
+        categorized = f'{tileID}_{categorized}'
+    else:
+        # 91 is all banners
+        # Not all of them are mob banners, soooo it would make sense to classify all of them
+        # however, there are so many that i don't really want to
+        # Sam with statues (id=105) and gems(id=178)
+        # Mechanisms = 135, 137, 144, 235, 419, 420, 421, 422, 423, 424, 428, 429, 443
+        # 209=cannons
+        # 376=fishing crates
+        if tileID in [4, 82, 83, 84, 91, 105, 135, 137, 144, 178, 209, 235, 239, 376, 419, 420, 421, 422, 423, 424, 428, 429, 443]:
+            categorized = f'{tileID}/{fX}_{fY}'
+        elif 254 == tileID:
+            # Pumpkin
+            if fX >= 108:
+                categorized = 'mature_pumpkin'
+            else:
+                categorized = 'seedling_pumpkin'
+        elif 597 == tileID:
+            # Is pylon
+            if 0 <= fX <= 36:
+                categorized = 'forest_pylon'
+            elif 54 <= fX <= 90:
+                categorized = 'jungle_pylon'
+            elif 108 <= fX <= 144:
+                categorized = 'hallowed_pylon'
+            elif 162 <= fX <= 198:
+                categorized = 'cavern_pylon'
+            elif 216 <= fX <= 252:
+                categorized = 'ocean_pylon'
+            elif 270 <= fX <= 306:
+                categorized = 'desert_pylon'
+            elif 324 <= fX <= 360:
+                categorized = 'snow_pylon'
+            elif 378 <= fX <= 414:
+                categorized = 'mushroom_pylon'
+            elif 432 <= fX <= 468:
+                categorized = 'universal_pylon'
+        elif 215 == tileID:
+            # Is campfire
+            if 0 <= fX <= 36:
+                categorized = 'original_campfire'
+            elif 54 <= fX <= 90:
+                categorized = 'cursed_campfire'
+            elif 108 <= fX <= 144:
+                categorized = 'demon_campfire'
+            elif 162 <= fX <= 198:
+                categorized = 'frozen_campfire'
+            elif 216 <= fX <= 252:
+                categorized = 'ichor_campfire'
+            elif 270 <= fX <= 306:
+                categorized = 'rainbow_campfire'
+            elif 324 <= fX <= 360:
+                categorized = 'ultrabright_campfire'
+            elif 378 <= fX <= 414:
+                categorized = 'bone_campfire'
+            elif 432 <= fX <= 468:
+                categorized = 'desert_campfire'
+            elif 486 <= fX <= 522:
+                categorized = 'coral_campfire'
+            elif 594 <= fX <= 630:
+                categorized = 'crimson_campfire'
+            elif 648 <= fX <= 684:
+                categorized = 'hallowed_campfire'
+            elif 702 <= fX <= 738:
+                categorized = 'jungle_campfire'
+            elif 756 <= fX <= 792:
+                categorized = 'mushroom_campfire'
+            elif 810 <= fX <= 846:
+                categorized = 'aether_campfire'
+    if categorized is None: categorized = tileID
+    return categorized
+
+
+def classifyBlock(tileInfo: dict) -> str:
     # Return in this order: unknown, tile, liquid, wall, air
     lighting = tileInfo['lighting']
     brightness = sum(lighting) / 3 / 255
-    isDark = brightness < 0.1   # Tile is too dark for a human to distinguish
+    isDark = brightness < BLOCK_MIN_BRIGHTNESS  # Block is too dark for a human to distinguish
     tileID = tileInfo['type']
     if tileInfo['hasTile'] is not False:
         if isDark: return 'tile/unknown'
         category = getIDcategory(tileID)
-        return f'tile/{category}'
-        if tileID in [3, 4, 5, 13, 24, 28, 50, 61, 82, 83, 84, 91, 105, 110, 135, 137, 144, 178, 201, 209, 215, 235, 239, 254, 323, 376, 419, 420, 423, 429, 443, 583, 584, 585, 586, 587, 588, 589, 596, 597, 616, 634, 653, 663]:
-            # Tile has important semantically meaningful subID
-            # For example, the tileID could be for books, with one subID being the Water Bold (ID=50)
-            # Or, one of the grass types could be a mushroom rather than just decorative (ID=3)
-            tilefX = tileInfo['fX']
-            tilefY = tileInfo['fY']
-            return f'tile/{category}/{tileID}_{tilefX}_{tilefY}'
-        else:
-            return f'tile/{category}/{tileID}'
-    if tileInfo['liquidAmount'] != 0 and (tileInfo['isSolid'] is True or tileInfo['isActuated'] is True):
+        tileClass = classifyTile(tileInfo)
+        return f'tile/{category}/{tileClass}'
+    if tileInfo['liquidAmount'] / 255 >= 0.2 and (tileInfo['isSolid'] is True or tileInfo['isActuated'] is True):
         # Liquid
         if isDark: return 'liquid/unknown'
         liquidType = tileInfo['liquidType']
@@ -108,23 +268,10 @@ def classifyImage(nparray: np.ndarray, tileInfo) -> str:
         return f'liquid/{liquidType}'
     wallID = tileInfo['wallType']
     if wallID != 0:
-        if isDark: return 'tile/unknown'
+        if isDark: return 'wall/unknown'
         return f'wall/{wallID}'
     if isDark: return 'air/unknown'
     return 'air/0'
-
-    if tileID in [4, 5, 10, 11, 13, 14, 15, 16, 18, 19, 20, 21, 26, 28, 31, 33, 34, 42]:
-        # Tile type is made of different materials
-        return f'tile_{tileID}_{tilefX}_{tilefY}'
-    if tileID in [5, 10, 11, 12, 14, 15, 16, 17, 18, 20, 21, 26, 27, 28, 31, 34, 35, 36]:
-        # Sprite spans multiple tiles
-        return f'tile_{tileID}_{tilefX}_{tilefY}'
-    if tileID in [35]:
-        # Sprite changes animations
-        return f'tile_{tileID}_{tilefX}_{tilefY}'
-    if tileID in []:
-        # Sprite meaningfully spans multiple tiles
-        return f'tile_{tileID}_{tilefX}_{tilefY}'
 
 
 def saveClassifyMiddleSnip(img: np.ndarray, captureData: dict) -> None:
@@ -148,15 +295,15 @@ def tileImage(img: np.ndarray, captureData) -> np.ndarray:
     tileImages = [[0 for x in range(tileWidth - 2)] for y in range(tileHeight - 2)]
     x_adjust = 16 - int(captureData['ScreenPosX']) % 16
     y_adjust = 16 - int(captureData['ScreenPosY']) % 16
-    x_adjust = 0
-    y_adjust = 0
+    #x_adjust = 0
+    #y_adjust = 0
     #x_adjust = -16 * int(x_adjust < 8)
     #y_adjust = 0  # -16 * int(y_adjust < 8)
     for x in range(1, tileWidth - 2):
         for y in range(1, tileHeight - 2):
             #if isInNogoZone: continue
             #newtilePixelArray = img[16*y + y_adjust:16*(y+1) + y_adjust, 16*x + x_adjust:16*(x+1) + x_adjust, :]
-            newtilePixelArray = img[16*y+y_adjust:16*(y+2)+y_adjust, 16*x+x_adjust:16*(x+2)+x_adjust, :]
+            newtilePixelArray = img[16*y+y_adjust:16*(y+1)+y_adjust, 16*x+x_adjust:16*(x+1)+x_adjust, :]
             tileImages[y][x] = newtilePixelArray
     return tileImages
 
@@ -226,7 +373,7 @@ def saveTiles(tileImages: np.ndarray, captureData: dict, nogoZone=None) -> None:
             # if np.mean(image) < 25: continue    # Image is too dark to tell what it is
             # ABOVE IS DEPRECATED: using tile lighting from tModLoader to determine if tile is too dark
             tileInfo = tileData[x][y]
-            classified = classifyImage(image, tileInfo)
+            classified = classifyBlock(tileInfo)
             mainPlace = trainingPath if random.random() > 0.2 else validationPath
             path = f'{mainPlace}/{classified}'
             imgAlreadyInSet = False
